@@ -1,0 +1,106 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15.1
+    container_name: db
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    # Volume для сохранения данных БД
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Healthcheck для Postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: web
+    # Пробрасываем локальные файлы в контейнер (volume или bind mount)
+    # Если нужно именно volume, то можно так:
+    # volumes:
+    #   - code_data:/app
+    # Для разработки с bind-монтом:
+    volumes:
+      - ./:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: mydatabase
+    # Healthcheck для web (пингует endpoint /ping)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nginx
+    container_name: nginx
+    depends_on:
+      web:
+        condition: service_healthy
+    # Публикуем порт 80 наружу
+    ports:
+      - "80:80"
+    # Healthcheck для Nginx: проверяем тот же /ping, но уже через Nginx (localhost/ping)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      web:
+        condition: service_started
+    ports:
+      - "9090:9090"
+    # Можно добавить healthcheck при желании
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # == Добавляем Grafana ==
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    # Можно добавить volume для сохранения настроек
+    volumes:
+       - ./grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+volumes:
+  postgres_data:
+    driver: local
+

@@ -1,0 +1,17 @@
+# docker/Dockerfile.nginx
+FROM nginx:1.23-alpine
+
+# Создаём пользователя/группу (не root)
+RUN addgroup -g 101 -S nginx && \
+    adduser -S -D -H -u 101 -G nginx nginx
+
+# Копируем наш конфиг Nginx в контейнер
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Меняем пользователя
+USER nginx
+
+# Порт 80 внутри контейнера (экспонируется в docker-compose)
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
