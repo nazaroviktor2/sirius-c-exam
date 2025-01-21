@@ -1,0 +1,97 @@
+version: '3.9'
+services:
+  nginx:
+    build:
+      dockerfile: nginx/Dockerfile
+      context: .
+    ports:
+      - "81:80"
+      - "443:443"
+    depends_on:
+      - web
+    networks:
+      - meet_network
+
+  postgres:
+    container_name: meet_backend_postgres
+    image: postgis/postgis:15-3.4
+    environment:
+      - POSTGRES_DB=${PG_DB}
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+    restart: on-failure
+    ports:
+      - ${PG_PORT}:5432
+    volumes:
+      - ./scripts/postgres:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "${PG_USER}", "-d", "${PG_DB}"]
+      interval: 5s
+      retries: 5
+    networks:
+      - meet_network
+
+  web:
+    container_name: meet_backend
+    build:
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .env
+    environment:
+      BIND_PORT: ${BIND_PORT}
+      BIND_HOST: ${BIND_HOST}
+    ports:
+      - "${BIND_PORT}:${BIND_PORT}"
+    restart: on-failure
+    volumes:
+      - ./:/code
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - meet_network
+
+  redis:
+    container_name: meet_backend_redis
+    image: redis:6.2.4
+    command:
+      - "--requirepass ${REDIS_PASSWORD}"
+      - "--appendonly yes"
+      - "--appendfilename 'appendonly.aof'"
+    ports:
+      - "${REDIS_PORT}:${REDIS_PORT}"
+    environment:
+      - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
+    networks:
+      - meet_network
+
+  rabbitmq:
+    image: rabbitmq:3.10.7-management
+    ports:
+      - "${RABBIT_PORT}:${RABBIT_PORT}"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBIT_USER}
+      - RABBITMQ_DEFAULT_PASS=${RABBIT_PASS}
+    networks:
+      - meet_network
+
+  prometheus:
+    image: prom/prometheus
+    container_name: meet_backend_prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus_config.yml"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    depends_on:
+      - web
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prom_data:/prometheus
+
+volumes:
+   prom_data:
+
+networks:
+  meet_network:
+    external: True

@@ -1,0 +1,3 @@
+CREATE SCHEMA meet;
+
+CREATE EXTENSION postgis;
